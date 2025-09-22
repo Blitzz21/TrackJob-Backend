@@ -3,8 +3,6 @@ import dotenv from "dotenv";
 dotenv.config();
 import authRoutes from "./routes/authRoutes";
 
-
-
 dotenv.config();
 const app = express();
 app.use(express.json());

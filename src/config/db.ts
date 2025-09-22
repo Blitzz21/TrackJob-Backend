@@ -7,9 +7,9 @@ const pool = mysql.createPool({
   user: process.env.AIVEN_USER,
   password: process.env.AIVEN_PASSWORD,
   database: process.env.AIVEN_DB,
-  ssl: {
-    ca: fs.readFileSync("certs/ca.pem")   // ✅ point to downloaded Aiven CA cert
-  }
+  ssl: process.env.AIVEN_CA
+    ? { ca: Buffer.from(process.env.AIVEN_CA, "base64").toString("utf-8") }
+    : { rejectUnauthorized: false }
 });
 
 // Test connection
