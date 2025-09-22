@@ -1,0 +1,4 @@
+gitingore
+node_modules/
+certs/
+.env
