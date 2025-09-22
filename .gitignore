@@ -1,4 +1,6 @@
 gitingore
 node_modules/
 certs/
+*.pem
+*.b64
 .env
