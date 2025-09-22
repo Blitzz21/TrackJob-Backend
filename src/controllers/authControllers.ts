@@ -1,5 +1,6 @@
-import pool from "../config/db";
 import { Request, Response } from "express";
+import pool from "../config/db";
+import bcrypt from "bcryptjs";
 
 export const registerUser = async (req: Request, res: Response) => {
   try {
@@ -9,15 +10,27 @@ export const registerUser = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    // Insert into MySQL
+    // Check if user exists
+    const [existing]: any = await pool.query(
+      "SELECT * FROM users WHERE email = ?",
+      [email]
+    );
+    if (existing.length > 0) {
+      return res.status(400).json({ error: "Email already registered" });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Insert user
     await pool.query(
       "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-      [name, email, password]
+      [name, email, hashedPassword]
     );
 
     res.status(201).json({ message: "User registered successfully ✅" });
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ error: "Database error" });
+  } catch (err: any) {
+    console.error("❌ Register error:", err.message);
+    res.status(500).json({ error: "Server error" });
   }
 };
