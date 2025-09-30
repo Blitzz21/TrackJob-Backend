@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import authRoutes from "./routes/authRoutes";
 import { authMiddleware } from "./middleware/authMiddleware";
 import jobRoutes from "./routes/jobRoutes";
+import followUpRoutes from "./routes/followupRoutes";
 
 const app = express();
 
@@ -30,6 +31,9 @@ app.get("/api/protected", authMiddleware, (req, res) => {
 
 // Job routes
 app.use("/api/jobs", jobRoutes);
+
+// Follow-up routes
+app.use("/api/followups", followUpRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
