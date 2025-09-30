@@ -4,6 +4,7 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import authRoutes from "./routes/authRoutes";
 import { authMiddleware } from "./middleware/authMiddleware";
+import jobRoutes from "./routes/jobRoutes";
 
 const app = express();
 
@@ -22,10 +23,13 @@ app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 // Auth routes
 app.use("/api/auth", authRoutes);
 
-// Protected routes
+// Test protected route
 app.get("/api/protected", authMiddleware, (req, res) => {
   res.json({ message: "You accessed a protected route!", user: (req as any).user });
 });
+
+// Job routes
+app.use("/api/jobs", jobRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

@@ -38,14 +38,17 @@ export const registerUser = async (req: Request, res: Response) => {
 
 export const loginUser = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, remember } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: "All fields are required" });
     }
 
     // Find user
-    const [rows]: any = await pool.query("SELECT * FROM users WHERE email = ?", [email]);
+    const [rows]: any = await pool.query(
+      "SELECT * FROM users WHERE email = ?",
+      [email]
+    );
     if (rows.length === 0) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
@@ -58,11 +61,13 @@ export const loginUser = async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // Create JWT
+    // ✅ JWT expiry changes if "remember me" is checked
     const token = jwt.sign(
-      { id: user.id, email: user.email },
+      { id: user.id },
       process.env.JWT_SECRET as string,
-      { expiresIn: "1h" }
+      {
+        expiresIn: remember ? "30d" : "1h",
+      }
     );
 
     res.json({ message: "Login successful ✅", token });
