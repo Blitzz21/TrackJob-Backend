@@ -53,12 +53,12 @@ export const getJobs = async (req: Request, res: Response) => {
 export const updateJob = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { company, position, status, applied_date } = req.body; // removed follow_up_date
+    const { company, email, position, status, applied_date } = req.body;
     const userId = (req as any).user.id;
 
     const [result]: any = await pool.query(
-      "UPDATE jobs SET company=?, position=?, status=?, applied_date=? WHERE id=? AND user_id=?",
-      [company, position, status, applied_date || null, id, userId]
+      "UPDATE jobs SET company=?, email=?, position=?, status=?, applied_date=? WHERE id=? AND user_id=?",
+      [company, email, position, status, applied_date, id, userId]
     );
 
     if (result.affectedRows === 0) {
@@ -71,8 +71,6 @@ export const updateJob = async (req: Request, res: Response) => {
     res.status(500).json({ error: "Server error" });
   }
 };
-
-
 
 // FOLLOW-UP update (status, follow-up date, optional email content)
 export const updateJobFollowUp = async (req: Request, res: Response) => {
