@@ -53,12 +53,14 @@ export const getJobs = async (req: Request, res: Response) => {
 export const updateJob = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { company, email, position, status, applied_date } = req.body;
+    const { company, position, status, applied_date, email } = req.body;
     const userId = (req as any).user.id;
 
     const [result]: any = await pool.query(
-      "UPDATE jobs SET company=?, email=?, position=?, status=?, applied_date=? WHERE id=? AND user_id=?",
-      [company, email, position, status, applied_date, id, userId]
+      `UPDATE jobs 
+       SET company=?, position=?, status=?, applied_date=?, email=? 
+       WHERE id=? AND user_id=?`,
+      [company, position, status, applied_date || null, email || null, id, userId]
     );
 
     if (result.affectedRows === 0) {
@@ -72,29 +74,32 @@ export const updateJob = async (req: Request, res: Response) => {
   }
 };
 
+
 // FOLLOW-UP update (status, follow-up date, optional email content)
 export const updateJobFollowUp = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { follow_up_date, status, emailContent } = req.body; 
+    const { follow_up_date, status, emailContent } = req.body;
     const userId = (req as any).user.id;
 
+    // ✅ Convert ISO string to MySQL DATE (YYYY-MM-DD)
+    const formattedDate = follow_up_date
+      ? new Date(follow_up_date).toISOString().split("T")[0]
+      : null;
+
     const [result]: any = await pool.query(
-      "UPDATE jobs SET follow_up_date=?, status=? WHERE id=? AND user_id=?",
-      [follow_up_date || null, status || "applied", id, userId]
+      "UPDATE jobs SET follow_up_date = ?, status = ? WHERE id = ? AND user_id = ?",
+      [formattedDate, status || "applied", id, userId]
     );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: "Job not found or not authorized" });
     }
 
-    // Optional: Store follow-up emails in a separate table for history
-    // await pool.query("INSERT INTO followups (job_id, user_id, content) VALUES (?, ?, ?)", [id, userId, emailContent]);
-
     res.json({ message: "Follow-up updated successfully ✅" });
   } catch (err: any) {
     console.error("❌ Follow-up update error:", err.message);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };
 
@@ -108,17 +113,21 @@ export const createFollowUp = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Job ID and follow-up date are required" });
     }
 
+    // ✅ Convert ISO date to MySQL-friendly format
+    const formattedDate = new Date(follow_up_date).toISOString().split("T")[0];
+
     await pool.query(
       "INSERT INTO followups (job_id, user_id, follow_up_date, type, content) VALUES (?, ?, ?, ?, ?)",
-      [job_id, userId, follow_up_date, type || "email", content || null]
+      [job_id, userId, formattedDate, type || "email", content || null]
     );
 
     res.status(201).json({ message: "Follow-up created successfully ✅" });
   } catch (err: any) {
     console.error("❌ Create follow-up error:", err.message);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };
+
 
 // GET all follow-ups for a job
 export const getFollowUpsByJob = async (req: Request, res: Response) => {
