@@ -106,25 +106,29 @@ export const updateJobFollowUp = async (req: Request, res: Response) => {
 // CREATE a follow-up
 export const createFollowUp = async (req: Request, res: Response) => {
   try {
-    const { job_id, follow_up_date, type, content } = req.body;
+    const { id } = req.params; // ✅ Get job ID from URL
+    const { follow_up_date, type, content } = req.body;
     const userId = (req as any).user.id;
 
-    if (!job_id || !follow_up_date) {
+    if (!id || !follow_up_date) {
       return res.status(400).json({ error: "Job ID and follow-up date are required" });
     }
 
-    // ✅ Convert ISO date to MySQL-friendly format
-    const formattedDate = new Date(follow_up_date).toISOString().split("T")[0];
+    // Fix: convert date from ISO to YYYY-MM-DD for MySQL
+    const formattedDate = follow_up_date.split("T")[0];
 
     await pool.query(
       "INSERT INTO followups (job_id, user_id, follow_up_date, type, content) VALUES (?, ?, ?, ?, ?)",
-      [job_id, userId, formattedDate, type || "email", content || null]
+      [id, userId, formattedDate, type || "email", content || null]
     );
 
-    res.status(201).json({ message: "Follow-up created successfully ✅" });
+    // Also update the job's next follow-up date
+    await pool.query("UPDATE jobs SET follow_up_date = ? WHERE id = ?", [formattedDate, id]);
+
+    res.status(201).json({ message: "Follow-up scheduled successfully ✅" });
   } catch (err: any) {
     console.error("❌ Create follow-up error:", err.message);
-    res.status(500).json({ error: err.message || "Server error" });
+    res.status(500).json({ error: "Server error" });
   }
 };
 
@@ -173,12 +177,18 @@ export const getFollowUps = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
 
-    const [followUps]: any = await pool.query(
-      "SELECT * FROM jobs WHERE user_id = ? AND follow_up_date IS NOT NULL AND follow_up_date >= CURDATE() ORDER BY follow_up_date ASC",
+    // Get all jobs with follow-ups
+    const [rows]: any = await pool.query(
+      "SELECT id, company, position, email, status, follow_up_date FROM jobs WHERE user_id = ? AND follow_up_date IS NOT NULL ORDER BY follow_up_date DESC",
       [userId]
     );
 
-    res.json(followUps);
+    // Split into scheduled (today or future) and sent (past)
+    const today = new Date();
+    const scheduled = rows.filter((r: any) => new Date(r.follow_up_date) >= today);
+    const sent = rows.filter((r: any) => new Date(r.follow_up_date) < today);
+
+    res.json({ scheduled, sent });
   } catch (err: any) {
     console.error("❌ Get follow-ups error:", err.message);
     res.status(500).json({ error: "Server error" });
