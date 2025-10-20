@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import pool from "../config/db"; 
 import nodemailer from "nodemailer";
-import { Resend } from 'resend';
 
 /* ============================================================
    CREATE JOB (No auto follow-up)
@@ -118,7 +117,7 @@ export const createFollowUp = async (req: Request, res: Response) => {
 
     if (!id) return res.status(400).json({ error: "Job ID is required" });
 
-    // 🧠 Determine follow-up date
+    // 🧠 If sendNow is true, set follow_up_date to today's date
     const formattedDate = sendNow
       ? new Date().toISOString().split("T")[0]
       : follow_up_date?.split("T")[0];
@@ -132,36 +131,45 @@ export const createFollowUp = async (req: Request, res: Response) => {
       [id, userId, formattedDate, type || "email", content || null]
     );
 
-    // ✅ Update job’s follow-up date
+    // ✅ Update job's follow-up date
     await pool.query("UPDATE jobs SET follow_up_date = ? WHERE id = ?", [
       formattedDate,
       id,
     ]);
 
-    // 📨 If sendNow is true, actually send the email via Resend
+    // 📨 If sendNow is true, actually send the email
     if (sendNow) {
       // 1️⃣ Get job info
       const [[job]]: any = await pool.query(
         "SELECT company, email, position FROM jobs WHERE id = ?",
         [id]
       );
+
       if (!job) return res.status(404).json({ error: "Job not found" });
 
-      // 2️⃣ Get user’s saved sender email
+      // 2️⃣ Get user's saved email credentials
       const [[settings]]: any = await pool.query(
-        "SELECT email FROM email_settings WHERE user_id = ?",
+        "SELECT email, encrypted_password FROM email_settings WHERE user_id = ?",
         [userId]
       );
+
       if (!settings)
         return res
           .status(400)
           .json({ error: "Please save your email settings first." });
 
-      // 3️⃣ Send email using Resend
-      const resend = new Resend(process.env.RESEND_API_KEY);
+      // 3️⃣ Send email via Nodemailer
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        pool: true,
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS, // ✅ fixed column name
+        },
+      });
 
-      await resend.emails.send({
-        from: settings.email, // user's sender email
+      await transporter.sendMail({
+        from: settings.email_address,
         to: job.email,
         subject: `Follow-up on ${job.position} at ${job.company}`,
         text:
@@ -169,12 +177,12 @@ export const createFollowUp = async (req: Request, res: Response) => {
           `Hi ${job.company},\n\nJust following up regarding my application for the ${job.position} position.\n\nBest regards,\n[Your Name]`,
       });
 
-      console.log("✅ Follow-up email sent successfully via Resend!");
+      console.log("✅ Follow-up email sent successfully!");
     }
 
     res.status(201).json({
       message: sendNow
-        ? "Follow-up email sent successfully via Resend ✅"
+        ? "Follow-up email sent successfully ✅"
         : "Follow-up scheduled successfully 📅",
     });
   } catch (err: any) {

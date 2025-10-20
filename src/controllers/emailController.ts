@@ -1,24 +1,24 @@
 import { Request, Response } from "express";
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import pool from "../config/db";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-// === Save Email Settings ===
+/* ============================================================
+   SAVE EMAIL SETTINGS (with encrypted password)
+   ============================================================ */
 export const saveEmailSettings = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
-    const { email } = req.body;
+    const { email, encryptedPassword } = req.body;
 
-    if (!email) {
-      return res.status(400).json({ error: "Email is required" });
+    if (!email || !encryptedPassword) {
+      return res.status(400).json({ error: "Email and encrypted password are required" });
     }
 
     await pool.query(
-      `INSERT INTO email_settings (user_id, email)
-       VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE email=?`,
-      [userId, email, email]
+      `INSERT INTO email_settings (user_id, email, encrypted_password)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE email=?, encrypted_password=?`,
+      [userId, email, encryptedPassword, email, encryptedPassword]
     );
 
     res.status(200).json({ message: "Email settings saved ✅" });
@@ -28,12 +28,14 @@ export const saveEmailSettings = async (req: Request, res: Response) => {
   }
 };
 
-// === Get Email Settings ===
+/* ============================================================
+   GET EMAIL SETTINGS
+   ============================================================ */
 export const getEmailSettings = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const [rows]: any = await pool.query(
-      "SELECT email FROM email_settings WHERE user_id = ?",
+      "SELECT email, encrypted_password FROM email_settings WHERE user_id = ?",
       [userId]
     );
 
@@ -48,14 +50,16 @@ export const getEmailSettings = async (req: Request, res: Response) => {
   }
 };
 
-// === Send Test Email (using Resend) ===
+/* ============================================================
+   SEND TEST EMAIL (using saved credentials)
+   ============================================================ */
 export const sendTestEmail = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const { to, subject, message } = req.body;
 
     const [rows]: any = await pool.query(
-      "SELECT email FROM email_settings WHERE user_id = ?",
+      "SELECT email, encrypted_password FROM email_settings WHERE user_id = ?",
       [userId]
     );
 
@@ -63,16 +67,24 @@ export const sendTestEmail = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Please set up email settings first." });
     }
 
-    const { email } = rows[0];
+    const { email, encrypted_password } = rows[0];
 
-    await resend.emails.send({
-      from: `${email}`,
-      to,
-      subject: subject || "Follow-up Message",
-      text: message || "This is a test email from your Job Tracker app!",
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: email,
+        pass: encrypted_password, // use correct column
+      },
     });
 
-    res.status(200).json({ message: "✅ Test email sent successfully via Resend" });
+    await transporter.sendMail({
+      from: email,
+      to,
+      subject,
+      text: message,
+    });
+
+    res.status(200).json({ message: "Test email sent successfully ✅" });
   } catch (err: any) {
     console.error("❌ Send test email error:", err.message);
     res.status(500).json({ error: "Failed to send email" });

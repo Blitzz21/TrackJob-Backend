@@ -9,5 +9,4 @@ router.post("/login", loginUser);
 router.put("/update-profile", authMiddleware, updateUserProfile);
 router.get("/me", authMiddleware, getCurrentUser);
 
-
 export default router;
