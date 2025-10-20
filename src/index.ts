@@ -6,6 +6,7 @@ import authRoutes from "./routes/authRoutes";
 import { authMiddleware } from "./middleware/authMiddleware";
 import jobRoutes from "./routes/jobRoutes";
 import followUpRoutes from "./routes/followupRoutes";
+import emailRoutes from "./routes/emailRoutes";
 
 const app = express();
 
@@ -34,6 +35,9 @@ app.use("/api/jobs", jobRoutes);
 
 // Follow-up routes
 app.use("/api/followups", followUpRoutes);
+
+// Email routes
+app.use("/api/email", emailRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

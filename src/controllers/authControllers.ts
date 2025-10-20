@@ -101,4 +101,25 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     res.status(500).json({ error: "Server error" });
   }
 };
-// Additional controllers like getUserProfile can be added here
+
+/* ============================================================
+   GET CURRENT USER INFO
+   ============================================================ */
+export const getCurrentUser = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const [rows]: any = await pool.query(
+      "SELECT id, name, email FROM users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: "User not found" });
+
+    res.json(rows[0]);
+  } catch (err: any) {
+    console.error("❌ getCurrentUser error:", err.message);
+    res.status(500).json({ error: "Server error" });
+  }
+};

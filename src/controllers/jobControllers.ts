@@ -1,27 +1,25 @@
 import { Request, Response } from "express";
-import pool from "../config/db";
+import pool from "../config/db"; 
+import nodemailer from "nodemailer";
 
-// CREATE job
+/* ============================================================
+   CREATE JOB (No auto follow-up)
+   ============================================================ */
 export const createJob = async (req: Request, res: Response) => {
   try {
-    const { company, position, email, status, applied_date, follow_up_date } = req.body;
+    const { company, position, email, status, applied_date } = req.body;
     const userId = (req as any).user?.id;
 
     if (!company) return res.status(400).json({ error: "Company is required" });
     if (!position) return res.status(400).json({ error: "Position is required" });
     if (!email) return res.status(400).json({ error: "Email is required" });
 
+    const appliedDate = applied_date ? applied_date.split("T")[0] : null;
+
     await pool.query(
-      "INSERT INTO jobs (user_id, company, position, email, status, applied_date, follow_up_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [
-        userId,
-        company,
-        position,
-        email,
-        status || "applied",
-        applied_date || null,
-        follow_up_date || null,
-      ]
+      `INSERT INTO jobs (user_id, company, position, email, status, applied_date)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [userId, company, position, email, status || "applied", appliedDate]
     );
 
     res.status(201).json({ message: "Job added successfully ✅" });
@@ -31,7 +29,9 @@ export const createJob = async (req: Request, res: Response) => {
   }
 };
 
-// READ jobs (all for logged-in user)
+/* ============================================================
+   READ JOBS (All for logged-in user)
+   ============================================================ */
 export const getJobs = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
@@ -48,19 +48,22 @@ export const getJobs = async (req: Request, res: Response) => {
   }
 };
 
-
-// UPDATE job
+/* ============================================================
+   UPDATE JOB
+   ============================================================ */
 export const updateJob = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { company, position, status, applied_date, email } = req.body;
     const userId = (req as any).user.id;
 
+    const appliedDate = applied_date ? applied_date.split("T")[0] : null;
+
     const [result]: any = await pool.query(
       `UPDATE jobs 
        SET company=?, position=?, status=?, applied_date=?, email=? 
        WHERE id=? AND user_id=?`,
-      [company, position, status, applied_date || null, email || null, id, userId]
+      [company, position, status, appliedDate, email, id, userId]
     );
 
     if (result.affectedRows === 0) {
@@ -74,15 +77,15 @@ export const updateJob = async (req: Request, res: Response) => {
   }
 };
 
-
-// FOLLOW-UP update (status, follow-up date, optional email content)
+/* ============================================================
+   UPDATE JOB FOLLOW-UP (Status / Follow-up date)
+   ============================================================ */
 export const updateJobFollowUp = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { follow_up_date, status, emailContent } = req.body;
+    const { follow_up_date, status } = req.body;
     const userId = (req as any).user.id;
 
-    // ✅ Convert ISO string to MySQL DATE (YYYY-MM-DD)
     const formattedDate = follow_up_date
       ? new Date(follow_up_date).toISOString().split("T")[0]
       : null;
@@ -103,37 +106,93 @@ export const updateJobFollowUp = async (req: Request, res: Response) => {
   }
 };
 
-// CREATE a follow-up
+/* ============================================================
+   CREATE FOLLOW-UP (Manual or Scheduled)
+   ============================================================ */
 export const createFollowUp = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params; // ✅ Get job ID from URL
-    const { follow_up_date, type, content } = req.body;
+    const { id } = req.params; // job ID
+    const { follow_up_date, type, content, sendNow } = req.body;
     const userId = (req as any).user.id;
 
-    if (!id || !follow_up_date) {
-      return res.status(400).json({ error: "Job ID and follow-up date are required" });
-    }
+    if (!id) return res.status(400).json({ error: "Job ID is required" });
 
-    // Fix: convert date from ISO to YYYY-MM-DD for MySQL
-    const formattedDate = follow_up_date.split("T")[0];
+    // 🧠 If sendNow is true, set follow_up_date to today's date
+    const formattedDate = sendNow
+      ? new Date().toISOString().split("T")[0]
+      : follow_up_date?.split("T")[0];
 
+    if (!formattedDate)
+      return res.status(400).json({ error: "Follow-up date is required" });
+
+    // ✅ Insert into followups table
     await pool.query(
       "INSERT INTO followups (job_id, user_id, follow_up_date, type, content) VALUES (?, ?, ?, ?, ?)",
       [id, userId, formattedDate, type || "email", content || null]
     );
 
-    // Also update the job's next follow-up date
-    await pool.query("UPDATE jobs SET follow_up_date = ? WHERE id = ?", [formattedDate, id]);
+    // ✅ Update job's follow-up date
+    await pool.query("UPDATE jobs SET follow_up_date = ? WHERE id = ?", [
+      formattedDate,
+      id,
+    ]);
 
-    res.status(201).json({ message: "Follow-up scheduled successfully ✅" });
+    // 📨 If sendNow is true, actually send the email
+    if (sendNow) {
+      // 1️⃣ Get job info
+      const [[job]]: any = await pool.query(
+        "SELECT company, email, position FROM jobs WHERE id = ?",
+        [id]
+      );
+
+      if (!job) return res.status(404).json({ error: "Job not found" });
+
+      // 2️⃣ Get user's saved email credentials
+      const [[settings]]: any = await pool.query(
+        "SELECT email, encrypted_password FROM email_settings WHERE user_id = ?",
+        [userId]
+      );
+
+      if (!settings)
+        return res
+          .status(400)
+          .json({ error: "Please save your email settings first." });
+
+      // 3️⃣ Send email via Nodemailer
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: settings.email,
+          pass: settings.encrypted_password, // ✅ fixed column name
+        },
+      });
+
+      await transporter.sendMail({
+        from: settings.email_address,
+        to: job.email,
+        subject: `Follow-up on ${job.position} at ${job.company}`,
+        text:
+          content ||
+          `Hi ${job.company},\n\nJust following up regarding my application for the ${job.position} position.\n\nBest regards,\n[Your Name]`,
+      });
+
+      console.log("✅ Follow-up email sent successfully!");
+    }
+
+    res.status(201).json({
+      message: sendNow
+        ? "Follow-up email sent successfully ✅"
+        : "Follow-up scheduled successfully 📅",
+    });
   } catch (err: any) {
     console.error("❌ Create follow-up error:", err.message);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };
 
-
-// GET all follow-ups for a job
+/* ============================================================
+   GET FOLLOW-UPS FOR SPECIFIC JOB
+   ============================================================ */
 export const getFollowUpsByJob = async (req: Request, res: Response) => {
   try {
     const { jobId } = req.params;
@@ -151,7 +210,9 @@ export const getFollowUpsByJob = async (req: Request, res: Response) => {
   }
 };
 
-// DELETE job
+/* ============================================================
+   DELETE JOB
+   ============================================================ */
 export const deleteJob = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -173,22 +234,24 @@ export const deleteJob = async (req: Request, res: Response) => {
   }
 };
 
+/* ============================================================
+   GET ALL FOLLOW-UPS (JOIN WITH JOBS)
+   ============================================================ */
 export const getFollowUps = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
 
-    // Get all jobs with follow-ups
-    const [rows]: any = await pool.query(
-      "SELECT id, company, position, email, status, follow_up_date FROM jobs WHERE user_id = ? AND follow_up_date IS NOT NULL ORDER BY follow_up_date DESC",
+    const [followUps]: any = await pool.query(
+      `SELECT f.id, f.follow_up_date, f.type, f.content,
+              j.company, j.email, j.position
+       FROM followups f
+       JOIN jobs j ON f.job_id = j.id
+       WHERE f.user_id = ?
+       ORDER BY f.follow_up_date DESC`,
       [userId]
     );
 
-    // Split into scheduled (today or future) and sent (past)
-    const today = new Date();
-    const scheduled = rows.filter((r: any) => new Date(r.follow_up_date) >= today);
-    const sent = rows.filter((r: any) => new Date(r.follow_up_date) < today);
-
-    res.json({ scheduled, sent });
+    res.json(followUps);
   } catch (err: any) {
     console.error("❌ Get follow-ups error:", err.message);
     res.status(500).json({ error: "Server error" });
