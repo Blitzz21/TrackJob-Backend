@@ -162,8 +162,8 @@ export const createFollowUp = async (req: Request, res: Response) => {
       const transporter = nodemailer.createTransport({
         service: "gmail",
         auth: {
-          user: settings.email,
-          pass: settings.encrypted_password, // ✅ fixed column name
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS, // ✅ fixed column name
         },
       });
 
